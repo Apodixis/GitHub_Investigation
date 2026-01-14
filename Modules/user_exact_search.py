@@ -2,6 +2,12 @@ import os, requests, time
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 
+# Import GraphQL query from Utils
+try:
+    from Utils.GraphQL_Queries import get_user_information_query
+except ImportError:
+    print("Error: Could not import get_user_information_query from Utils.GraphQL_Queries") #Placeholder
+
 ## CONSIDERED FOR FUTURE UPDATES:
 ## 1) Verify the module import statements functionality for test and primary execution contexts.
 ## 2) Preprocess followership data to drop users not meeting criteria for futher comparison
@@ -13,62 +19,31 @@ except ImportError: # Adjust import to facilitate testing within this module
 
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 
-# GraphQL query including target user details and socialAccounts for all nodes
-QUERY = """
-query getUserInformation($login: String!, $pageSize: Int = 100, $socialSize: Int = 10, $followingCursor: String, $followersCursor: String) {
-    user(login: $login) {
-        login createdAt name email bio location company
-        socialAccounts(first: $socialSize) {
-            nodes { url }
-        }
-        following(first: $pageSize, after: $followingCursor) {
-            pageInfo { hasNextPage endCursor }
-            nodes {
-                login createdAt name email bio location company
-                socialAccounts(first: $socialSize) {
-                    nodes { url }
-                }
-            }
-        }
-        followers(first: $pageSize, after: $followersCursor) {
-            pageInfo { hasNextPage endCursor }
-            nodes {
-                login createdAt name email bio location company
-                socialAccounts(first: $socialSize) {
-                    nodes { url }
-                }
-            }
-        }
-        starredRepositories(first: 10, orderBy: {field: STARRED_AT, direction: DESC}) {
-            edges {
-                node {
-                    name description url stargazerCount
-                    owner {
-                        login
-                    }
-                }
-            }
-            pageInfo {
-                endCursor
-            hasNextPage
-            }
-        }
-    }
-}
-"""
-
 def _normalize_user(node: Dict) -> Dict:
     """Convert GraphQL user node to a flat dict including socialAccounts URLs."""
     social_nodes = (node.get("socialAccounts") or {}).get("nodes") or []
-    social_urls = [n.get("url") for n in social_nodes if n and n.get("url")]
+    social_urls = {n.get("url") for n in social_nodes if n and n.get("url")}
+    
+    # Extract organizations (list of org logins)
+    organization_nodes = (node.get("organizations") or {}).get("nodes") or []
+    organizations = {org.get("login") for org in organization_nodes if org and org.get("login")}
+    
+    # Always return emails as a set (if present, else empty set)
+    email_val = node.get("email")
+    emails = set()
+    
+    if email_val:
+        emails.add(email_val)
+        
     return {
         "login": node.get("login"),
         "name": node.get("name"),
-        "emails": node.get("email"),
+        "emails": emails,
         "bio": node.get("bio"),
         "location": node.get("location"),
         "company": node.get("company"),
         "socialAccounts": social_urls,
+        "organizations": organizations,
     }
 
 def get_followership(
@@ -95,6 +70,7 @@ def get_followership(
     more_following = True
     more_followers = True
     
+    query = get_user_information_query()
     while (more_following or more_followers) and (len(following) < max_following or len(followers) < max_followers):
         variables = {
             "login": login,
@@ -103,7 +79,7 @@ def get_followership(
             "followingCursor": following_cursor,
             "followersCursor": followers_cursor,
         }
-        response = requests.post(GITHUB_GRAPHQL_URL, json={"query": QUERY, "variables": variables}, headers=headers)
+        response = requests.post(GITHUB_GRAPHQL_URL, json={"query": query, "variables": variables}, headers=headers)
         response.raise_for_status()
         payload = response.json()
         
@@ -111,8 +87,11 @@ def get_followership(
             raise RuntimeError(f"GraphQL error: {payload['errors']}")
         
         user = payload.get("data", {}).get("user")
+        #print(f"Fetched user payload: {user}")
+        
         if not user:
             break
+        
         if target_user is None:
             target_user = _normalize_user(user)
         
@@ -120,23 +99,44 @@ def get_followership(
         following_conn = user["following"]
         following_nodes_raw = following_conn.get("nodes") or []
         following_nodes = [_normalize_user(n) for n in following_nodes_raw]
+        
         remaining_following = max_following - len(following)
         if remaining_following > 0:
             following.extend(following_nodes[:remaining_following])
+        
         following_cursor = following_conn["pageInfo"]["endCursor"]
         more_following = following_conn["pageInfo"]["hasNextPage"] and len(following) < max_following
-        
+
         # Followers
         followers_conn = user["followers"]
         followers_nodes_raw = followers_conn.get("nodes") or []
         followers_nodes = [_normalize_user(n) for n in followers_nodes_raw]
+        
         remaining_followers = max_followers - len(followers)
         if remaining_followers > 0:
             followers.extend(followers_nodes[:remaining_followers])
+        
         followers_cursor = followers_conn["pageInfo"]["endCursor"]
         more_followers = followers_conn["pageInfo"]["hasNextPage"] and len(followers) < max_followers
-
-    return target_user or {"login": login}, following, followers
+    
+    
+    # Extract starred repository owner logins from the last fetched user payload
+    starred_owner_logins = []
+    try:
+        # 'user' comes from the last loop iteration where payload was fetched
+        starred = (user or {}).get("starredRepositories") or {}
+        edges = starred.get("edges") or []
+        for edge in edges:
+            node = (edge or {}).get("node") or {}
+            owner = node.get("owner") or {}
+            owner_login = owner.get("login")
+            if owner_login:
+                starred_owner_logins.append(owner_login)
+    
+    except Exception: # Non-critical: if structure not present, leave list empty
+        pass
+    
+    return target_user or {"login": login}, following, followers, starred_owner_logins
 
 def get_mutual_followership(following: List[Dict], followers: List[Dict]):
     """
@@ -144,6 +144,7 @@ def get_mutual_followership(following: List[Dict], followers: List[Dict]):
     """
     following_logins = {user["login"] for user in following}
     mutuals = [user for user in followers if user["login"] in following_logins]
+    
     return mutuals
 
 def user_exact_search(token: str, username: str, start_time=None) -> List[Dict]:
@@ -154,18 +155,19 @@ def user_exact_search(token: str, username: str, start_time=None) -> List[Dict]:
     Information (per User): Followership, "relationship," (Mutual/Followed by, Follows) and achievements.
     Note: Achievement data is added by the enrichment_profile_scraping() function.
     """
-    target_user, following, followers = get_followership(token, username)
+    target_user, following, followers, starred_owner_logins = get_followership(token, username)
+    print(f"Starred Owner Logins: {starred_owner_logins}")
     
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
     print(f"Followership time: {elapsed_time:.4f} seconds") # Prints execution time (without user input delay)
-
+    
     followership_data = unique_followership(following, followers)
     
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
     print(f"Unique Follower time: {elapsed_time:.4f} seconds") # Prints execution time (without user input delay)
-
+    
     # Enriches user data with achievements (inaccessible via GraphQL or REST APIs)
     e_user = enrichment_profile_scraping([target_user])
     e_followership = enrichment_profile_scraping(followership_data)
@@ -173,7 +175,7 @@ def user_exact_search(token: str, username: str, start_time=None) -> List[Dict]:
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
     print(f"Enrichment time: {elapsed_time:.4f} seconds") # Prints execution time (without user input delay)
-
+    
     return e_user, e_followership
 
 def unique_followership(following: List[Dict], followers: List[Dict]) -> List[Dict]:
@@ -199,7 +201,7 @@ def unique_followership(following: List[Dict], followers: List[Dict]) -> List[Di
         
         elif user["login"] in followers_set:
             user["relationship"] = "Follower of"
-
+    
     return followership
 
 if __name__ == "__main__":
@@ -208,6 +210,7 @@ if __name__ == "__main__":
     
     try:
         from dotenv import load_dotenv
+        
         if ENV_PATH.exists():
             load_dotenv(dotenv_path=ENV_PATH, override=False)
         else:

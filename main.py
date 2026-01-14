@@ -38,9 +38,11 @@ def decision_tree():
     while True:
         choice = input("Enter 1-4: ").strip()
         action = actions.get(choice)
+        
         if action:
             action()
             break
+        
         else:
             print("Invalid selection. Please enter 1, 2, 3, or 4.")
 
@@ -51,7 +53,9 @@ def user_followership_lookup(token):
     target_user = input("Enter the GitHub username to analyze: ").strip()
     start_time = time.perf_counter() # Start time measurement
     time.sleep(1)
+    
     user_info = user_exact_search(token, target_user, start_time)
+    
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
     print(f"Target User Info: {user_info[0]}")
