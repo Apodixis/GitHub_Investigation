@@ -2,6 +2,7 @@ import os, time # Time used to measure code execution times
 from pathlib import Path
 from Modules.search import user_search_exact, user_search_partial
 from Utils.menus import search_mode_menu, clearTerminal
+from Utils.write_to_file import write_user_search_exact_to_excel
 
 ## CONSIDERED FOR FUTURE UPDATES:
 ## 1) Implement a scoring module to rank attribution confidence based on multiple factors (e.g., name/email syntax, location, company, social links, achievements, etc.).
@@ -60,7 +61,6 @@ def user_search(token):
     
     if search_mode == "1":
         user_data = user_search_exact(token, target_user) # ADD FUTURE ENRICHMENT FUNCTIONS HERE
-        
         print(user_data)
         
     elif search_mode == "2":
@@ -70,6 +70,17 @@ def user_search(token):
     
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
+    
+    try:
+        clearTerminal()
+        write_user_search_exact_to_excel(user_data, target_user)
+        print(f"Results saved to Excel in your Downloads folder.")
+    
+    except Exception as e:
+        clearTerminal()
+        print(f"Error saving results to Excel: {e}")
+        print(user_data)
+        
     print(f"Execution time: {elapsed_time:.4f} seconds") # Prints execution time (without user input delay)
 
 if __name__ == '__main__':

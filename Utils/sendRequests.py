@@ -1,6 +1,8 @@
 # Utils/requests.py
 import requests
 from typing import List, Dict, Optional, Tuple
+from .dataTransformations import compare_user_relations, starred_repo_owners
+from .queries import graphQL_repo_insights_query
 
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 
@@ -34,19 +36,19 @@ def _normalize_user(node: Dict) -> Dict:
         "login": node.get("login"),
         "name": node.get("name"),
         "emails": emails,
-        "bio": node.get("bio"),
+        "socialAccounts": normalized_urls,
         "location": node.get("location"),
         "company": node.get("company"),
-        "socialAccounts": normalized_urls,
-        "organizations": organizations,
+        "bio": node.get("bio"),
+        "organizations": organizations
     }
 
 def user_exact_request(
     token: str,
     query: str,
     login: str,
-    max_following: int = 100,
-    max_followers: int = 100,
+    max_following: int = 250,
+    max_followers: int = 250,
     page_size: int = 100,
     social_size: int = 10,
 ) -> Tuple[Dict, List[Dict], List[Dict]]:
@@ -60,7 +62,7 @@ def user_exact_request(
     
     following: List[Dict] = []
     followers: List[Dict] = []
-    target_user: Optional[Dict] = None
+    
     following_cursor: Optional[str] = None
     followers_cursor: Optional[str] = None
     more_following = True
@@ -69,32 +71,24 @@ def user_exact_request(
     while (more_following or more_followers) and (len(following) < max_following or len(followers) < max_followers):
         variables = {
             "login": login,
-            "pageSize": min(page_size, 100),
+            "pageSize": min(page_size, 500),
             "socialSize": social_size,
             "followingCursor": following_cursor,
             "followersCursor": followers_cursor,
         }
-
+        
         response = requests.post(GITHUB_GRAPHQL_URL, json={"query": query, "variables": variables}, headers=headers)
         response.raise_for_status()
         payload = response.json()
-
+        
         if payload.get("errors"):
             raise RuntimeError(f"GraphQL error: {payload['errors']}")
-
+        
         user = payload.get("data", {}).get("user")
         print(f"Fetched user payload: {user}")
         if not user:
             break
-
-        # Always normalize the target user (overwrite with latest, or keep first only)
-        normalized_user = _normalize_user(user)
-        if target_user is None:
-            target_user = [normalized_user]
-        else:
-            # Only keep the first user as target_user
-            pass
-
+        
         # Following
         following_conn = user["following"]
         following_nodes_raw = following_conn.get("nodes") or []
@@ -104,7 +98,7 @@ def user_exact_request(
             following.extend(following_nodes[:remaining_following])
         following_cursor = following_conn["pageInfo"]["endCursor"]
         more_following = following_conn["pageInfo"]["hasNextPage"] and len(following) < max_following
-
+        
         # Followers
         followers_conn = user["followers"]
         followers_nodes_raw = followers_conn.get("nodes") or []
@@ -114,29 +108,97 @@ def user_exact_request(
             followers.extend(followers_nodes[:remaining_followers])
         followers_cursor = followers_conn["pageInfo"]["endCursor"]
         more_followers = followers_conn["pageInfo"]["hasNextPage"] and len(followers) < max_followers
+        
+        # If no more to fetch, break
+        if not (more_following or more_followers):
+            break
+        
+    # Normalize target_user and perform some data transformations
+    if user:
+        normalized_target = _normalize_user(user)
+        
+    else:
+        normalized_target = None
     
+    # Sets user['relation'] value for each user based on followership (mutual, following, follower)
+    followership = compare_user_relations(following, followers, normalized_target)
+    
+    return [normalized_target], followership
+
+def user_exact_results_requests(token: str,
+    query: str,
+    page_size: int = 100
+) -> Tuple[Dict, List[Dict], List[Dict]]:
     """
-    PLACEHOLDER MAKE INTO CALLABLE FUNCTION
-    starred_owner_logins = starred_repo_owners(user)
+    Inputs: GitHub usernames (logins) and personal access token.
+    Outputs: Target user profile dicts, listing user stargazing information.
+    Method: GitHub GraphQL API with pagination.
+    Information (per User): Owner & Repository names of starred repositories.
+    """
+    headers = {"Authorization": f"bearer {token}", "Content-Type": "application/json"}
     
-    # Extract starred repository owner logins from the last fetched user payload
-    starred_owner_logins = []
-    try:
-        # 'user' comes from the last loop iteration where payload was fetched
+    starred_edges = []
+    starred_cursor = None
+    starred_fetched = 0
+    max_starred = 250
+    
+    while starred_fetched < max_starred:
+        variables = {
+            "pageSize": min(page_size, 100),
+            "starredCursor": starred_cursor
+        }
+        
+        response = requests.post(GITHUB_GRAPHQL_URL, json={"query": query, "variables": variables}, headers=headers)
+        response.raise_for_status()
+        payload = response.json()
+        
+        if payload.get("errors"):
+            raise RuntimeError(f"GraphQL error: {payload['errors']}")
+        
+        user = payload.get("data", {}).get("user")
+        print(f"Fetched user payload: {user}")
+        if not user:
+            break
+        
+        # Starred Repositories Pagination
         starred = (user or {}).get("starredRepositories") or {}
         edges = starred.get("edges") or []
-        for edge in edges:
-            node = (edge or {}).get("node") or {}
-            owner = node.get("owner") or {}
-            owner_login = owner.get("login")
-            if owner_login:
-                starred_owner_logins.append(owner_login)
-    except Exception: # Non-critical: if structure not present, leave list empty
-        pass
-    """
+        starred_edges.extend(edges)
+        starred_cursor = starred.get("pageInfo", {}).get("endCursor")
+        more_starred = starred.get("pageInfo", {}).get("hasNextPage", False) and len(starred_edges) < max_starred
+        
+        # If no more to fetch, break
+        if not (more_starred):
+            break
+    
+    # Normalize target_user and perform some data transformations
+    if user:
+        user["starredRepositories"] = {"edges": starred_edges}
+        normalized_target = _normalize_user(user)
+        normalized_target['stargazing'] = starred_repo_owners(user)
+    
+    else:
+        normalized_target = None
 
-    #return target_user or {"login": login}, following, followers, starred_owner_logins
-    return target_user, following, followers
+def starred_repos_request(token: str, query: str) -> Dict:
+    """
+    
+    Sends a POST request to the provided GitHub GraphQL endpoint for starred repositories.
+    Args:
+        query (str): The REST API URL for the user's starred repositories.
+        token (str, optional): GitHub personal access token for authentication.
+    Returns:
+        list: List of starred repositories (as dicts).
+    """
+    headers = {"Authorization": f"bearer {token}", "Content-Type": "application/json"}
+    
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    response = requests.post(GITHUB_GRAPHQL_URL, json={"query": query}, headers=headers)
+    response.raise_for_status()
+    return response.json()
+
+#============================================================================================
 
 def user_partial_request(
     token: str,
@@ -168,24 +230,66 @@ def user_partial_request(
     
     print(f"Fetched user payload: {user_dicts}")
     
-    """
-    PLACEHOLDER MAKE INTO CALLABLE FUNCTION
-    starred_owner_logins = starred_repo_owners(user)
-    
-    # Extract starred repository owner logins from the last fetched user payload
-    starred_owner_logins = []
-    try:
-        # 'user' comes from the last loop iteration where payload was fetched
-        starred = (user or {}).get("starredRepositories") or {}
-        edges = starred.get("edges") or []
-        for edge in edges:
-            node = (edge or {}).get("node") or {}
-            owner = node.get("owner") or {}
-            owner_login = owner.get("login")
-            if owner_login:
-                starred_owner_logins.append(owner_login)
-    except Exception: # Non-critical: if structure not present, leave list empty
-        pass
-    """
-    
     return user_dicts
+
+#============================================================================================
+
+# Fetches users who forked and starred repositories for a given user (up to 250 repos, paginated)
+def repo_insights_request(token: str, login: str):
+    """
+    Args:
+        token: GitHub personal access token
+        query: GraphQL query string from graphQL_repo_insights_query()
+        login: GitHub username to pull repo insights for
+    Returns:
+        (forked_users, starred_users):
+            forked_users: list of user logins who have forked any repo
+            starred_users: list of user logins who have starred any repo
+    """
+    from .queries import graphQL_repo_insights_query
+    headers = {"Authorization": f"bearer {token}", "Content-Type": "application/json"}
+    repo_cursor = None
+    forked_users = set()
+    starred_users = set()
+    total_repos = 0
+    max_repos = 250
+    query = graphQL_repo_insights_query(login)
+    
+    while total_repos < max_repos:
+        variables = {"login": login, "repoCursor": repo_cursor}
+        response = requests.post(GITHUB_GRAPHQL_URL, json={"query": query, "variables": variables}, headers=headers)
+        response.raise_for_status()
+        payload = response.json()
+        
+        if payload.get("errors"):
+            raise RuntimeError(f"GraphQL error: {payload['errors']}")
+        
+        user = payload.get("data", {}).get("user")
+        if not user:
+            break
+        
+        repos = user.get("repositories", {}).get("nodes", [])
+        for repo in repos:
+            
+            # Forks
+            for fork in repo.get("forks", {}).get("nodes", []):
+                owner = fork.get("owner", {})
+                login_val = owner.get("login")
+                if login_val:
+                    forked_users.add(login_val)
+            
+            # Stargazers
+            for stargazer in repo.get("stargazers", {}).get("nodes", []):
+                login_val = stargazer.get("login")
+                if login_val:
+                    starred_users.add(login_val)
+        
+        total_repos += len(repos)
+        page_info = user.get("repositories", {}).get("pageInfo", {})
+        
+        if page_info.get("hasNextPage") and total_repos < max_repos:
+            repo_cursor = page_info.get("endCursor")
+            
+        else:
+            break
+    return list(forked_users), list(starred_users)

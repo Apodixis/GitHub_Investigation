@@ -45,46 +45,47 @@ def enrich_user_data(users, base_url="https://github.com/", start_time=None):
         print(f"ENRICHING USER: {user['login']} ({i+1} of {len(users)})")
         
         emails = set(user.get("emails", {}))  # Start with any emails from upstream
-
+        
         # Seed links with any existing links or socialAccounts from upstream data
         social_accounts = set(user.get("socialAccounts", {}))
-
+        
         login = user['login']
         target_url = f"{base_url}{login}"
-
+        
         #ADDS PROFILE ACHIEVEMENTS TO USER DICT
         try:
             response = requests.get(target_url, timeout=120)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'lxml')
-
+            
             #PROFILE ACHIEVEMENTS
             profile_achievements = set(el['alt'][13:] for el in soup.select('.border-top.color-border-muted.pt-3.mt-3.d-none.d-md-block [alt]'))
             user["achievements"] = profile_achievements
+        
         except Exception as e:
             print(f"Error: {e}")
             return None
-
+        
         #ADDS HYPERLINKS TO SOCIAL MEDIA AND EMAIL ADDRESSES TO USER DICT
         try:
             for a_tag in soup.select('a[href]'):
                 href = a_tag['href']
-
+                
                 # Skip empty hrefs
                 if not href:
                     continue
-
+                
                 # Skip non-navigational hrefs quickly
                 if href[0] == ('#') or href[:4] == 'java':
                     continue
-
+                
                 # Handle mailto early and cheaply
                 if href[:7] == 'mailto:':
                     emails.add(href[7:])
                     continue
-
+                
                 parsed_url = urlparse(href).netloc
-
+                
                 #Identifies Relative links
                 if not parsed_url:
                     # Relative link → internal; check for achievements directly
@@ -94,26 +95,26 @@ def enrich_user_data(users, base_url="https://github.com/", start_time=None):
                             val = val.split('&')[0]
                         achievements.add(val)
                     continue
-
+                
                 # Compare base domain only when needed
                 base = extract(parsed_url).domain
                 if "github" in base:
                     continue
-
+                
                 else:
                     social_accounts.add(href)
-
+        
         except Exception as e:
             print(f"Error: {e}")
             return None
-
+        
         user['emails'] = emails
-
+        
         if user.get('socialAccounts'):
             existing_socials = set(user["socialAccounts"])
             normalized_socials = {_normalize_url(url) for url in existing_socials}
             user['socialAccounts'] = normalized_socials
-
+    
     return users
 
 if __name__ == '__main__':
