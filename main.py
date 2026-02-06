@@ -1,8 +1,9 @@
 import os, time # Time used to measure code execution times
 from pathlib import Path
-from Modules.search import user_search_exact, user_search_partial
-from Utils.menus import search_mode_menu, clearTerminal
-from Utils.write_to_file import write_user_search_exact_to_excel
+from Modules.userSearch import user_search_exact, user_search_partial
+from Modules.organizationSearch import organization_search_info, organization_search_intersection
+from Utils.menus import user_search_mode_menu, organization_search_mode_menu, clearTerminal
+from Utils.writeToFile import write_user_search_exact_to_excel
 
 ## CONSIDERED FOR FUTURE UPDATES:
 ## 1) Implement a scoring module to rank attribution confidence based on multiple factors (e.g., name/email syntax, location, company, social links, achievements, etc.).
@@ -26,13 +27,13 @@ def _decision_tree():
     clearTerminal()
     
     print("1) User Search")
-    print("2) PLACEHOLDER")
+    print("2) Organization Search")
     print("3) PLACEHOLDER")
     print("4) PLACEHOLDER")
     
     actions = {
         "1": lambda: user_search(token), 
-        "2": lambda: print("Placeholder '2' Selected"),
+        "2": lambda: organization_search(token),
         "3": lambda: print("Placeholder '3' Selected"),
         "4": lambda: print("Placeholder '4' Selected"),
     }
@@ -51,7 +52,7 @@ def user_search(token):
     1. Exact: Returns info on the input user and their followership and stargazing relationships
     2. Partial: Searches for users with similar names to the search string and returns their profile info'''
     
-    search_mode = search_mode_menu()
+    search_mode = user_search_mode_menu()
     clearTerminal()
     
     target_user = input("Enter the GitHub username to analyze: ").strip()
@@ -81,6 +82,38 @@ def user_search(token):
         print(f"Error saving results to Excel: {e}")
         print(user_data)
         
+    print(f"Execution time: {elapsed_time:.4f} seconds") # Prints execution time (without user input delay)
+
+def organization_search(token):
+    '''PLACEHOLDER for future organization search functionality'''
+    print("Organization search functionality is under development.")
+    
+    search_mode = organization_search_mode_menu()
+    
+    #Builds a list of target organizations from user input
+    target_orgs = []
+    while True:
+        target_org = input("Enter the GitHub organization to analyze (leave blank to finish): ").strip()
+        if not target_org:
+            break
+        target_orgs.append(target_org)
+    
+    start_time = time.perf_counter() # Start time measurement
+    
+    if search_mode == "1":
+        org_data = organization_search_info(token, target_orgs) # ADD FUTURE ENRICHMENT FUNCTIONS HERE
+        
+        clearTerminal()
+        print(org_data)
+        
+    elif search_mode == "2":
+        org_data = organization_search_intersection(token, target_orgs)
+        
+        clearTerminal()
+        print(org_data)
+    
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
     print(f"Execution time: {elapsed_time:.4f} seconds") # Prints execution time (without user input delay)
 
 if __name__ == '__main__':

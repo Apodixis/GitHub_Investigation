@@ -1,4 +1,4 @@
-# Utils/GraphQL_Queries.py
+# Utils/queries.py
 """
 Central location for GraphQL query strings used in the project.
 """
@@ -97,10 +97,10 @@ def graphQL_build_stargazing_query(user_logins):
     Explanation: Try requesting starredRepositories { totalCount } to limit querying in a single request.
     """
     query = f"""query userStargazingQuery {{
-"""
+        """
     for i, user in enumerate(user_logins):
         user_index = str(i)
-        query += f"""    user{user_index}: user(login: "{user}") {{
+        query += f"""user{user_index}: user(login: "{user}") {{
             login starredRepositories(first: 100) {{
                 nodes {{ nameWithOwner }}
                 pageInfo {{ endCursor hasNextPage }}
@@ -132,3 +132,23 @@ def graphQL_repo_insights_query(login):
         }}
     }}
     """
+
+def graphQL_organization_query(org_logins):
+    query = f"""query getOrganizationInfo($repoCursor: String, $memberCursor: String) {{
+        """
+    for i, org in enumerate(org_logins):
+            org_index = str(i)
+            query += f"""org{org_index}: organization(login: "{org}") {{
+                login name email location websiteUrl createdAt isVerified twitterUsername
+                membersWithRole(first: 100, after: $memberCursor) {{
+                    nodes {{ login name email }}
+                    pageInfo {{ hasNextPage endCursor }}
+                }}
+                repositories(first: 100, after: $repoCursor) {{
+                    nodes {{ name description }}
+                    pageInfo {{ hasNextPage endCursor }}
+                }}
+            }}"""
+    query += "}"
+    
+    return query

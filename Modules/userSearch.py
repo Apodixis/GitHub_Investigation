@@ -1,12 +1,12 @@
+# Modules/userSearch.py
+
 import requests, time
-from collections import Counter
 
 from Utils.queries import graphQL_user_exact_query, graphQL_build_partial_user_query, graphQL_build_stargazing_query, graphQL_build_stargazing_query, graphQL_repo_insights_query
 from Utils.sendRequests import user_exact_request, user_partial_request, starred_repos_request, repo_insights_request
 from Utils.menus import enrichment_menu
-from Utils.menus import clearTerminal
 from Utils.dataTransformations import compare_repo_insights
-from .target_enrichment import enrich_user_data
+from .targetEnrichment import enrich_user_data
 
 def user_search_exact(token, target_user): # Add user selection before return prompting for enrichment
     """
