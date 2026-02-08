@@ -1,4 +1,4 @@
-# Modules/target_enrichment.py
+# Modules/targetEnrichment.py
 import os, requests, lxml, time
 from bs4 import BeautifulSoup
 from tldextract import extract
@@ -12,8 +12,12 @@ from urllib.parse import urlparse
 ## CONSIDERED FOR FUTURE UPDATES:
 ## 1) Exclude results based on subsequent call to confidence scoring module (to be developed).
 
-def _normalize_url(url):
-    """Normalizes URLs by ensuring they use HTTPS, end with a slash, and do not contain 'www.'."""
+def _normalize_url(url: str) -> str:
+    """
+    Inputs: URL.
+    Outputs: Normalized URL.
+    Method: String manipulation.
+    """
     normal_url = url.replace('\xa0', '').rstrip(".,;:<>\"'[]{}-=+!?@#$%^&*()|\\/`~ \n\r") # Clean URL of whitespace and trailing punctuation
     if normal_url[:7] == "http://": # converts http to https
         normal_url = normal_url.replace("http://", "https://", 1)
@@ -21,7 +25,7 @@ def _normalize_url(url):
         normal_url = normal_url.replace("www.", "")
     return normal_url
 
-def enrich_user_data(users, base_url="https://github.com/", start_time=None):
+def enrich_user_data(users: list, base_url="https://github.com/", start_time: float = None) -> list:
     """
     Inputs: users (login) and a GitHub base URL. #Accepts lists of users when called in a for loop from followership.py.
     Outputs: Appends email addresses and social media links identified in a user's Readme file to user["email"] and user["links"] for each input user.

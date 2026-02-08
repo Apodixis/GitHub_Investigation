@@ -1,12 +1,12 @@
+# Utils/dataTransformations.py
 from collections import Counter
 
 def compare_user_relations(following: list, followers: list, target_user: dict = None) -> list:
     """
-    Compares users in following and followers lists, annotating each user with their relation:
-    - 'mutual' if in both
-    - 'following' if only in following
-    - 'follower' if only in followers
-    Returns a combined list of users with 'relation' set.
+    Inputs: Two lists of user dicts: (1) following and (2) followers and an optional target_user dict.
+    Outputs: List of user dicts annotated with their relationship to the target user.
+    Method: Membership testing and dictionary merging.
+    Information (per User): Relation to target user ('mutual', 'following', 'follower', or 'target').
     """
     if target_user:
         target_user['relation'] = 'target'
@@ -34,9 +34,12 @@ def compare_user_relations(following: list, followers: list, target_user: dict =
             
     return relations
 
-def starred_repo_owners(target_user: dict):
+def starred_repo_owners(target_user: dict) -> list:
     """
-    Extracts all starred repositories' owner logins and returns a list of [unique owner name, number of occurrences].
+    Inputs: Target_user dict.
+    Outputs: Nested list of [unique repo owner names, count].
+    Method: Membership testing and counting.
+    Information (per repo owner): Owner login, number of occurrences.
     """
     from collections import Counter
     owner_names = []
@@ -64,12 +67,12 @@ def starred_repo_owners(target_user: dict):
     return [[owner, count] for owner, count in sorted_owners]
 
 # Compares forked_users and starred_users, returning repo_insights as specified
-def compare_repo_insights(forked_users, starred_users):
+def compare_repo_insights(forked_users: list, starred_users: list) -> list:
     """
-    For each unique login in forked_users and starred_users, returns a nested list:
-    [login, {'relation': relationship}, {'count': count}]
-    relationship: 'forked', 'starred', or 'forked and starred'
-    count: total number of times the login appeared in both lists
+    Inputs: Two lists: (1) users that forked repositories and (2) users that starred repositories owned by the target user.
+    Outputs: Nested list of [user login, {'relation': relation}, {'count': count}].
+    Method: Membership testing and counting.
+    Information (per user): Owner login, relationship to target_user, number of occurrences.
     """
     forked_counter = Counter(forked_users)
     starred_counter = Counter(starred_users)

@@ -1,14 +1,14 @@
+# Utils/writeToFile.py
 import os, openpyxl
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 
-def write_user_search_exact_to_excel(user_data, target_user):
+def write_user_search_exact_to_excel(user_data: list, target_user: str):
 	"""
-	Writes user exact search results (without enrichment) to an Excel file.
-	The file is named as: f"{YYYYMMDDHHMM}user_search_exact_{target_user}.xlsx"
-	user_data: list of user dicts (target_user + followership)
-	target_user: str, the username searched
-	"""
+    Inputs: List of dicts containing returned information and target name(s).
+    Outputs: Excel file written to user's Downloads folder.
+    Method: Uses Openpyxl to write data to an Excel file.
+    """
 	# Create workbook and worksheet
 	wb = openpyxl.Workbook()
 	ws = wb.active

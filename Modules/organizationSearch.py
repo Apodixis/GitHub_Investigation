@@ -1,9 +1,8 @@
 # Modules/organizationSearch.py
-
 from Utils.queries import graphQL_organization_query
 from Utils.sendRequests import organization_request
 
-def organization_search_info(token, target_orgs): # Add organization selection before return prompting for enrichment
+def organization_search_info(token: str, target_orgs: list) -> dict: # Add organization selection before return prompting for enrichment
     """
     Inputs: GitHub organization (login) and personal access token.
     Outputs: Target org info, dictionary of members, list of followers.

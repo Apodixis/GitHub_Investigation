@@ -1,3 +1,4 @@
+# main.py
 import os, time # Time used to measure code execution times
 from pathlib import Path
 from Modules.userSearch import user_search_exact, user_search_partial
@@ -48,10 +49,11 @@ def _decision_tree():
             print("Invalid selection. Please enter 1, 2, 3, or 4.")
 
 def user_search(token):
-    '''Broadens target analysis by fetching followership data and returning noteworthy followers:
+    '''
+    Broadens target analysis by fetching followership data and returning noteworthy followers:
     1. Exact: Returns info on the input user and their followership and stargazing relationships
-    2. Partial: Searches for users with similar names to the search string and returns their profile info'''
-    
+    2. Partial: Returns info for users with similar names to the search string and returns their profile info
+    '''
     search_mode = user_search_mode_menu()
     clearTerminal()
     
@@ -65,9 +67,9 @@ def user_search(token):
         print(user_data)
         
     elif search_mode == "2":
-        result = set()
-        result = user_search_partial(token, target_user)
-        print(result)
+        user_data = set()
+        user_data = user_search_partial(token, target_user)
+        print(user_data)
     
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
@@ -85,9 +87,11 @@ def user_search(token):
     print(f"Execution time: {elapsed_time:.4f} seconds") # Prints execution time (without user input delay)
 
 def organization_search(token):
-    '''PLACEHOLDER for future organization search functionality'''
-    print("Organization search functionality is under development.")
-    
+    '''
+    Broadens target analysis by fetching organization and membership data:
+    1. Organization(s): Returns information on the input organization(s) and the members of each input organization: (Members + Info, Repos, Contributors)
+    2. Member Intersection: Returns users that are members of multiple organizations from the input organization names (Member Info)
+    '''
     search_mode = organization_search_mode_menu()
     
     #Builds a list of target organizations from user input

@@ -1,5 +1,4 @@
 # Modules/userSearch.py
-
 import requests, time
 
 from Utils.queries import graphQL_user_exact_query, graphQL_build_partial_user_query, graphQL_build_stargazing_query, graphQL_build_stargazing_query, graphQL_repo_insights_query
@@ -8,7 +7,7 @@ from Utils.menus import enrichment_menu
 from Utils.dataTransformations import compare_repo_insights
 from .targetEnrichment import enrich_user_data
 
-def user_search_exact(token, target_user): # Add user selection before return prompting for enrichment
+def user_search_exact(token: str, target_user: str): # Add user selection before return prompting for enrichment.
     """
     Inputs: GitHub username (login) and personal access token.
     Outputs: Target user profile dict, list of following, list of followers.
@@ -20,7 +19,6 @@ def user_search_exact(token, target_user): # Add user selection before return pr
     target_user, followership = user_exact_request(token, query, target_user)
     
     # ================== BATCHED STARGAZING ENRICHMENT =====================
-    
     
     # Collect all user logins to enrich (excluding None logins)
     all_users = target_user + followership
@@ -76,16 +74,7 @@ def user_search_exact(token, target_user): # Add user selection before return pr
                 pass
             
             user['stargazing'] = stargazing
-            
-            ''' # COMMENTED OUT FOR NOW - POTENTIAL FUTURE USE
-            # Derive insights from stargazing data (Strength of Relationship to Repo Owners): [[repoOwner, count]]
-            owners = [name.split('/')[0] for name in stargazing if '/' in name]
-            owner_counts = Counter(owners)
-            stargazing_insights = [[owner, count] for owner, count in owner_counts.items()]
-            stargazing_insights.sort(key=lambda x: x[1], reverse=True)
-            user['stargazing_owners'] = stargazing_insights
-            '''
-            
+        
         # Sleep to mitigate rate limiting
         time.sleep(1)
     
@@ -104,14 +93,12 @@ def user_search_exact(token, target_user): # Add user selection before return pr
         return all_users
 #=============================================================================================
 
-def user_search_partial(token, target_user):
+def user_search_partial(token: str, target_user: str) -> dict:
     """
-    Search GitHub users by partial match using the REST API /search/users endpoint.
-    Args:
-        target_user (str): The partial username to search for.
-        github_token (str, optional): GitHub personal access token for authentication (recommended for higher rate limits).
-    Returns:
-        dict: The JSON response from GitHub containing user matches.
+    Inputs: GitHub username substring (login) and personal access token.
+    Outputs: Target user dict + Partial match user dicts.
+    Method: GitHub GraphQL API with pagination.
+    Information (per User): Login, Name, Email, Bio, Location, Company, socialAccounts URLs.
     """
     url = f"https://api.github.com/search/users?q={target_user}+in:login&per_page=100"
     headers = {"Accept": "application/vnd.github+json"}

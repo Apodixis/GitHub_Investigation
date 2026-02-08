@@ -3,8 +3,7 @@
 Central location for GraphQL query strings used in the project.
 """
 
-# Query for GitHub user information, including followership and social accounts
-def graphQL_user_exact_query(login):
+def graphQL_user_exact_query(login): # Returns a query for GitHub user information, including followership and social accounts
     return """
     query getAllUserInformation($login: String!, $pageSize: Int = 100, $socialSize: Int = 10, $followingCursor: String, $followersCursor: String, $cursor: String) {
         user(login: $login) {
@@ -52,7 +51,7 @@ def graphQL_user_exact_query(login):
 }
     """
 
-def graphQL_user_starred_repos_query(login):
+def graphQL_user_starred_repos_query(login): # Returns a query for repositories starred by a GitHub user
     return """
     query getStarredRepos($login: String!, $pageSize: Int = 100, $socialSize: Int = 10, $followingCursor: String, $followersCursor: String, $cursor: String) {
         user(login: $login) {
@@ -68,7 +67,7 @@ def graphQL_user_starred_repos_query(login):
 }
     """
 
-def graphQL_build_partial_user_query(user_logins):
+def graphQL_build_partial_user_query(user_logins): # Builds and returns a query that fetches information on users that contain or partially match the input string
     """
     Assembles a GraphQL query string that fetches information for all users, in one request, returned
     by the User Search (Partial) method
@@ -90,7 +89,7 @@ def graphQL_build_partial_user_query(user_logins):
     
     return query
 
-def graphQL_build_stargazing_query(user_logins):
+def graphQL_build_stargazing_query(user_logins): # Builds and returns a query that fetches (for each user) the repositories they have starred (including the repository name and owner)
     """
     For use in batch requesting the starred repositories of multiple users (enriching followership information)
     Explanation: Batching used to maintain speed while avoiding GraphQL rate limits.
@@ -112,7 +111,7 @@ def graphQL_build_stargazing_query(user_logins):
     
     return query
 
-def graphQL_repo_insights_query(login):
+def graphQL_repo_insights_query(login): # Returns a query for repositories owned by a user, including users that forked and starred each repository
     return f"""query userReposInsightsQuery($login: String!, $repoCursor: String) {{
         user(login: $login) {{
             repositories(first: 100, after: $repoCursor) {{
@@ -133,22 +132,24 @@ def graphQL_repo_insights_query(login):
     }}
     """
 
-def graphQL_organization_query(org_logins):
-    query = f"""query getOrganizationInfo($repoCursor: String, $memberCursor: String) {{
+def graphQL_organization_query(batch): # Returns a query for organizations, including members and repositories
+    var_decl = ", ".join([f"$repoCursor{idx}: String, $memberCursor{idx}: String" for idx in range(len(batch))])
+    query = f"""query({var_decl}) {{
         """
-    for i, org in enumerate(org_logins):
-            org_index = str(i)
-            query += f"""org{org_index}: organization(login: "{org}") {{
-                login name email location websiteUrl createdAt isVerified twitterUsername
-                membersWithRole(first: 100, after: $memberCursor) {{
-                    nodes {{ login name email }}
-                    pageInfo {{ hasNextPage endCursor }}
-                }}
-                repositories(first: 100, after: $repoCursor) {{
-                    nodes {{ name description }}
-                    pageInfo {{ hasNextPage endCursor }}
-                }}
-            }}"""
-    query += "}"
+    
+    for i, org in enumerate(batch):
+        query += f"""org{i}: organization(login: "{org}") {{
+            login name email location websiteUrl createdAt isVerified twitterUsername
+            repositories(first: 100, after: $repoCursor{i}) {{
+                nodes {{ name description }}
+                pageInfo {{ hasNextPage endCursor }}
+            }}
+            membersWithRole(first: 100, after: $memberCursor{i}) {{
+                nodes {{ login name email }}
+                pageInfo {{ hasNextPage endCursor }}
+            }}
+        }}"""
+        
+    query += "}" # Closes the GraphQL query string
     
     return query
