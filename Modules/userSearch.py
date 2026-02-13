@@ -2,7 +2,7 @@
 import requests, time
 
 from Utils.queries import graphQL_user_exact_query, graphQL_build_partial_user_query, graphQL_build_stargazing_query, graphQL_build_stargazing_query, graphQL_repo_insights_query
-from Utils.sendRequests import user_exact_request, user_partial_request, starred_repos_request, repo_insights_request
+from Utils.userRequests import user_exact_request, user_partial_request, starred_repos_request, repo_insights_request
 from Utils.menus import enrichment_menu
 from Utils.dataTransformations import compare_repo_insights
 from .targetEnrichment import enrich_user_data
@@ -15,8 +15,16 @@ def user_search_exact(token: str, target_user: str): # Add user selection before
     Information (per User): Login, Name, Email, Bio, Location, Company, socialAccounts URLs.
     """
     query = graphQL_user_exact_query(target_user) # Fetch the GraphQL query string
-    
-    target_user, followership = user_exact_request(token, query, target_user)
+    variables = {
+        "login": target_user,
+        "pageSize": 100,
+        "socialSize": 10,
+        "followingCursor": None,
+        "followersCursor": None,
+        "max_following": 250,
+        "max_followers": 250
+    }
+    target_user, followership = user_exact_request(token, query, variables)
     
     # ================== BATCHED STARGAZING ENRICHMENT =====================
     
@@ -118,10 +126,12 @@ def user_search_partial(token: str, target_user: str) -> dict:
     #print(f"users: {logins}")
     
     query = graphQL_build_partial_user_query(logins)
-    #print(query)
-    
-    results = user_partial_request(token, query)
-    #print(result)
+    variables = {
+        "pageSize": 100,
+        "socialSize": 10
+    }
+    results = user_partial_request(token, query, variables)
+    #print(results)
     
     enrich = enrichment_menu()
     

@@ -1,8 +1,8 @@
-# Utils/sendRequests.py
+# Utils/userRequests.py
 import requests
 from typing import List, Dict, Optional, Tuple
 from .dataTransformations import compare_user_relations, starred_repo_owners
-from .queries import graphQL_repo_insights_query, graphQL_organization_query
+from .queries import graphQL_repo_insights_query
 
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 
@@ -39,6 +39,7 @@ def _normalize_user(node: Dict) -> Dict:
         
     return {
         "login": node.get("login"),
+        "createdAt": node.get("createdAt"),
         "name": node.get("name"),
         "emails": emails,
         "socialAccounts": normalized_urls,
@@ -51,14 +52,10 @@ def _normalize_user(node: Dict) -> Dict:
 def user_exact_request(
     token: str,
     query: str,
-    login: str,
-    max_following: int = 250,
-    max_followers: int = 250,
-    page_size: int = 100,
-    social_size: int = 10,
-) -> Tuple[Dict, List[Dict], List[Dict]]:
+    variables: dict
+    ) -> Tuple[Dict, List[Dict], List[Dict]]:
     """
-    Inputs: GitHub username (login) and personal access token.
+    Inputs: GitHub username (login), personal access token, and variables dictionary.
     Outputs: Target user profile dict, list of following, list of followers.
     Method: Batched requests to the GitHub GraphQL endpoint for users with pagination.
     Information (per User): Login, Name, Email, Bio, Location, Company, socialAccounts URLs.
@@ -67,21 +64,10 @@ def user_exact_request(
     
     following: List[Dict] = []
     followers: List[Dict] = []
-    
-    following_cursor: Optional[str] = None
-    followers_cursor: Optional[str] = None
     more_following = True
     more_followers = True
     
-    while (more_following or more_followers) and (len(following) < max_following or len(followers) < max_followers):
-        variables = {
-            "login": login,
-            "pageSize": min(page_size, 500),
-            "socialSize": social_size,
-            "followingCursor": following_cursor,
-            "followersCursor": followers_cursor,
-        }
-        
+    while (more_following or more_followers) and (len(following) < variables.get("max_following") or len(followers) < variables.get("max_followers")):
         response = requests.post(GITHUB_GRAPHQL_URL, json={"query": query, "variables": variables}, headers=headers)
         response.raise_for_status()
         payload = response.json()
@@ -98,21 +84,23 @@ def user_exact_request(
         following_conn = user["following"]
         following_nodes_raw = following_conn.get("nodes") or []
         following_nodes = [_normalize_user(n) for n in following_nodes_raw]
-        remaining_following = max_following - len(following)
+        remaining_following = variables.get("max_following", 250) - len(following)
         if remaining_following > 0:
             following.extend(following_nodes[:remaining_following])
         following_cursor = following_conn["pageInfo"]["endCursor"]
-        more_following = following_conn["pageInfo"]["hasNextPage"] and len(following) < max_following
+        more_following = following_conn["pageInfo"]["hasNextPage"] and len(following) < variables.get("max_following")
+        variables["followingCursor"] = following_cursor
         
         # Followers
         followers_conn = user["followers"]
         followers_nodes_raw = followers_conn.get("nodes") or []
         followers_nodes = [_normalize_user(n) for n in followers_nodes_raw]
-        remaining_followers = max_followers - len(followers)
+        remaining_followers = variables.get("max_followers") - len(followers)
         if remaining_followers > 0:
             followers.extend(followers_nodes[:remaining_followers])
         followers_cursor = followers_conn["pageInfo"]["endCursor"]
-        more_followers = followers_conn["pageInfo"]["hasNextPage"] and len(followers) < max_followers
+        more_followers = followers_conn["pageInfo"]["hasNextPage"] and len(followers) < variables.get("max_followers")
+        variables["followersCursor"] = followers_cursor
         
         # If no more to fetch, break
         if not (more_following or more_followers):
@@ -130,12 +118,31 @@ def user_exact_request(
     
     return [normalized_target], followership
 
+def user_bulk_request(token: str, query: str) -> Dict:
+    """
+    Inputs: GitHub usernames (logins) list and personal access token.
+    Outputs: GraphQL response JSON for bulk user queries.
+    Method: Batched requests to the GitHub GraphQL endpoint for users.
+    Information (per User): Login, Name, Email, Bio, Location, Company, socialAccounts URLs.
+    """
+    headers = {"Authorization": f"bearer {token}", "Content-Type": "application/json"}
+    response = requests.post(GITHUB_GRAPHQL_URL, json={"query": query}, headers=headers)
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("errors"):
+        raise RuntimeError(f"GraphQL error: {payload['errors']}")
+    
+    user_dicts = list(payload["data"].values())
+    
+    normalized_users = [_normalize_user(user) for user in user_dicts if user]
+    return normalized_users
+
 def user_exact_results_requests(token: str,
     query: str,
-    page_size: int = 100
+    variables: dict
 ) -> Tuple[Dict, List[Dict], List[Dict]]:
     """
-    Inputs: GitHub usernames (logins) and personal access token.
+    Inputs: GitHub username (login), personal access token, and variables dictionary.
     Outputs: Target user profile dicts, listing user stargazing information.
     Method: Batched requests to the GitHub GraphQL endpoint for users with pagination.
     Information (per User): Owner & Repository names of starred repositories.
@@ -143,16 +150,11 @@ def user_exact_results_requests(token: str,
     headers = {"Authorization": f"bearer {token}", "Content-Type": "application/json"}
     
     starred_edges = []
-    starred_cursor = None
+    starred_cursor = variables.get("starredCursor")
     starred_fetched = 0
-    max_starred = 250
-    
+    max_starred = variables.get("maxStarred", 250)
+
     while starred_fetched < max_starred:
-        variables = {
-            "pageSize": min(page_size, 100),
-            "starredCursor": starred_cursor
-        }
-        
         response = requests.post(GITHUB_GRAPHQL_URL, json={"query": query, "variables": variables}, headers=headers)
         response.raise_for_status()
         payload = response.json()
@@ -170,7 +172,8 @@ def user_exact_results_requests(token: str,
         edges = starred.get("edges") or []
         starred_edges.extend(edges)
         starred_cursor = starred.get("pageInfo", {}).get("endCursor")
-        more_starred = starred.get("pageInfo", {}).get("hasNextPage", False) and len(starred_edges) < max_starred
+        more_starred = starred.get("pageInfo", {}).get("hasNextPage", False) and len(starred_edges) < variables.get("maxStarred", 250)
+        variables["starredCursor"] = starred_cursor
         
         # If no more to fetch, break
         if not (more_starred):
@@ -185,9 +188,9 @@ def user_exact_results_requests(token: str,
     else:
         normalized_target = None
 
-def starred_repos_request(token: str, query: str) -> Dict:
+def starred_repos_request(token: str, query: str, variables: dict = None) -> Dict:
     """
-    Inputs: Personal access token and GraphQL query string.
+    Inputs: Personal access token, GraphQL query string, and variables dictionary.
     Outputs: GraphQL response JSON: name, description, and stargazerCount (for each repo starred by the input user) and the owner of each starred repo.
     Method: Batched requests to the GitHub GraphQL endpoint for users with pagination.
     Information (per User): Owner & Repository names of starred repositories.
@@ -196,7 +199,10 @@ def starred_repos_request(token: str, query: str) -> Dict:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     
-    response = requests.post(GITHUB_GRAPHQL_URL, json={"query": query}, headers=headers)
+    payload = {"query": query}
+    if variables is not None:
+        payload["variables"] = variables
+    response = requests.post(GITHUB_GRAPHQL_URL, json=payload, headers=headers)
     response.raise_for_status()
     return response.json()
 
@@ -205,21 +211,15 @@ def starred_repos_request(token: str, query: str) -> Dict:
 def user_partial_request(
     token: str,
     query: str,
-    page_size: int = 100,
-    social_size: int = 10,
+    variables: dict
 ) -> Tuple[Dict, List[Dict], List[Dict]]:
     """
-    Inputs: GitHub username (login) and personal access token.
+    Inputs: GitHub username (login), personal access token, and variables dictionary.
     Outputs: Target user profile dict, list of following, list of followers.
     Method: Batched requests to the GitHub GraphQL endpoint for users with pagination.
     Information (per User): Login, Name, Email, Bio, Location, Company, socialAccounts URLs.
     """
     headers = {"Authorization": f"bearer {token}", "Content-Type": "application/json"}
-    
-    variables = {
-            "pageSize": min(page_size, 100),
-            "socialSize": social_size,
-        }
     
     response = requests.post(GITHUB_GRAPHQL_URL, json={"query": query, "variables": variables}, headers=headers)
     response.raise_for_status()
@@ -290,93 +290,3 @@ def repo_insights_request(token: str, login: str):
         else:
             break
     return list(forked_users), list(starred_users)
-
-#============================================================================================
-
-# Sends a POST request to the GitHub GraphQL endpoint for organizations
-def organization_request(token: str, target_orgs: List[str]) -> Dict[str, any]:
-    """
-    Inputs: List of GitHub organization names (logins) and personal access token.
-    Outputs: Dictionary containing organization info, all repository names, and all members for each organization in target_orgs.
-    Method: Batched requests to the GitHub GraphQL endpoint for organizations with pagination.
-    Information (per Organization): Organization info, all repositories, and all members.
-    """
-    GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
-    headers = {"Authorization": f"bearer {token}", "Content-Type": "application/json"}
-    results = {}
-    
-    # Process orgs in batches of 2
-    for i in range(0, len(target_orgs), 2):
-        batch = target_orgs[i:i+2]
-        
-        # Initialize per-org state
-        org_states = {}
-        for idx, org in enumerate(batch):
-            org_states[org] = {
-                "org_info": None,
-                "all_repos": [],
-                "all_members": [],
-                "repo_cursor": None,
-                "member_cursor": None,
-                "repos_done": False,
-                "members_done": False
-            }
-        
-        # Paginate until all orgs in batch are done
-        while not all(s["repos_done"] and s["members_done"] for s in org_states.values()):
-            
-            # Build query and variables for this batch
-            query = graphQL_organization_query(batch)
-            variables = {}
-                
-            for idx, org in enumerate(batch):
-                # Set variables for this org
-                state = org_states[org]
-                variables[f"repoCursor{idx}"] = state["repo_cursor"]
-                variables[f"memberCursor{idx}"] = state["member_cursor"]
-            
-            #Fetches data for this batch
-            response = requests.post(GITHUB_GRAPHQL_URL, json={"query": query, "variables": variables}, headers=headers)
-            response.raise_for_status()
-            data = response.json()["data"]
-            
-            #Handles logic for each org in the batch and changes the loop condition when complete
-            for idx, org in enumerate(batch):
-                org_key = f"org{idx}"
-                org_data = data.get(org_key)
-                if not org_data:
-                    org_states[org]["repos_done"] = True
-                    org_states[org]["members_done"] = True
-                    continue
-                    
-                # Org info (only set once)
-                if not org_states[org]["org_info"]:
-                    org_states[org]["org_info"] = {k: org_data[k] for k in ["login", "name", "email", "location", "websiteUrl", "createdAt", "isVerified", "twitterUsername"]}
-                
-                # Repos
-                repos = org_data["repositories"]["nodes"]
-                org_states[org]["all_repos"].extend(repos)
-                repo_page = org_data["repositories"]["pageInfo"]
-                if repo_page["hasNextPage"]:
-                    org_states[org]["repo_cursor"] = repo_page["endCursor"]
-                else:
-                    org_states[org]["repos_done"] = True
-                
-                # Members
-                members = org_data["membersWithRole"]["nodes"]
-                org_states[org]["all_members"].extend(members)
-                member_page = org_data["membersWithRole"]["pageInfo"]
-                if member_page["hasNextPage"]:
-                    org_states[org]["member_cursor"] = member_page["endCursor"]
-                else:
-                    org_states[org]["members_done"] = True
-        
-        # Store results for this batch
-        for org in batch:
-            results[org] = {
-                "organization": org_states[org]["org_info"],
-                "repositories": org_states[org]["all_repos"],
-                "members": org_states[org]["all_members"]
-            }
-    
-    return results

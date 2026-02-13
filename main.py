@@ -4,7 +4,7 @@ from pathlib import Path
 from Modules.userSearch import user_search_exact, user_search_partial
 from Modules.organizationSearch import organization_search_info, organization_search_intersection
 from Utils.menus import user_search_mode_menu, organization_search_mode_menu, clearTerminal
-from Utils.writeToFile import write_user_search_exact_to_excel
+from Utils.writeToFile import write_to_excel
 
 ## CONSIDERED FOR FUTURE UPDATES:
 ## 1) Implement a scoring module to rank attribution confidence based on multiple factors (e.g., name/email syntax, location, company, social links, achievements, etc.).
@@ -23,6 +23,8 @@ try:
     
 except ImportError:
     token = input("Enter your GitHub Personal Access Token: ")
+
+search_info = {}
 
 def _decision_tree():
     clearTerminal()
@@ -54,6 +56,8 @@ def user_search(token):
     1. Exact: Returns info on the input user and their followership and stargazing relationships
     2. Partial: Returns info for users with similar names to the search string and returns their profile info
     '''
+    search_info["search_mode"] = "user" # used in outfile name
+    
     search_mode = user_search_mode_menu()
     clearTerminal()
     
@@ -63,27 +67,28 @@ def user_search(token):
     start_time = time.perf_counter() # Start time measurement
     
     if search_mode == "1":
-        user_data = user_search_exact(token, target_user) # ADD FUTURE ENRICHMENT FUNCTIONS HERE
+        search_info["search_method"] = "Exact" # used in outfile name
+        user_data = user_search_exact(token, target_user)
         print(user_data)
         
     elif search_mode == "2":
+        search_info["search_method"] = "Partial" # used in outfile name
         user_data = set()
         user_data = user_search_partial(token, target_user)
         print(user_data)
     
-    end_time = time.perf_counter()
-    elapsed_time = end_time - start_time
-    
     try:
         clearTerminal()
-        write_user_search_exact_to_excel(user_data, target_user)
+        write_to_excel(user_data, target_user, search_info)
         print(f"Results saved to Excel in your Downloads folder.")
     
     except Exception as e:
         clearTerminal()
         print(f"Error saving results to Excel: {e}")
         print(user_data)
-        
+    
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
     print(f"Execution time: {elapsed_time:.4f} seconds") # Prints execution time (without user input delay)
 
 def organization_search(token):
@@ -92,6 +97,8 @@ def organization_search(token):
     1. Organization(s): Returns information on the input organization(s) and the members of each input organization: (Members + Info, Repos, Contributors)
     2. Member Intersection: Returns users that are members of multiple organizations from the input organization names (Member Info)
     '''
+    search_info["search_mode"] = "organization" # used in outfile name
+    
     search_mode = organization_search_mode_menu()
     
     #Builds a list of target organizations from user input
@@ -101,19 +108,32 @@ def organization_search(token):
         if not target_org:
             break
         target_orgs.append(target_org)
+        orgCount = f"{len(target_orgs)}orgs" # used in outfile name
     
     start_time = time.perf_counter() # Start time measurement
     
     if search_mode == "1":
+        search_info["search_method"] = "Info" # used in outfile name
         org_data = organization_search_info(token, target_orgs) # ADD FUTURE ENRICHMENT FUNCTIONS HERE
         
         clearTerminal()
         print(org_data)
-        
+    
     elif search_mode == "2":
+        search_info["search_method"] = "Intersection" # used in outfile name
         org_data = organization_search_intersection(token, target_orgs)
         
         clearTerminal()
+        print(org_data)
+    
+    try:
+        clearTerminal()
+        write_to_excel(org_data, orgCount, search_info)
+        print(f"Results saved to Excel in your Downloads folder.")
+    
+    except Exception as e:
+        clearTerminal()
+        print(f"Error saving results to Excel: {e}")
         print(org_data)
     
     end_time = time.perf_counter()

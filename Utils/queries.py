@@ -5,7 +5,7 @@ Central location for GraphQL query strings used in the project.
 
 def graphQL_user_exact_query(login): # Returns a query for GitHub user information, including followership and social accounts
     return """
-    query getAllUserInformation($login: String!, $pageSize: Int = 100, $socialSize: Int = 10, $followingCursor: String, $followersCursor: String, $cursor: String) {
+    query userQuery($login: String!, $pageSize: Int = 100, $socialSize: Int = 10, $followingCursor: String, $followersCursor: String, $cursor: String) {
         user(login: $login) {
             login createdAt name email bio location company
             socialAccounts(first: $socialSize) {
@@ -51,6 +51,26 @@ def graphQL_user_exact_query(login): # Returns a query for GitHub user informati
 }
     """
 
+def graphQL_build_bulk_user_query(user_logins): # Builds and returns a query that fetches information on users that contain or partially match the input string
+    """
+    Assembles a GraphQL query string that fetches information for all users, in one request, returned
+    by the User Search (Partial) method
+    """
+    query = f"""query bulkUserQuery {{
+    """
+    
+    for i, user in enumerate(user_logins):
+        user_index = str(i)
+        query += f"""user{user_index}: user(login: "{user}") {{
+            login createdAt name email bio location company
+            socialAccounts(first: 10) {{
+                nodes {{ url }}
+                }}
+            }}"""
+    query += "}"
+    
+    return query
+
 def graphQL_user_starred_repos_query(login): # Returns a query for repositories starred by a GitHub user
     return """
     query getStarredRepos($login: String!, $pageSize: Int = 100, $socialSize: Int = 10, $followingCursor: String, $followersCursor: String, $cursor: String) {
@@ -77,15 +97,13 @@ def graphQL_build_partial_user_query(user_logins): # Builds and returns a query 
 
     for i, user in enumerate(user_logins):
         user_index = str(i)
-        query += f"""   user{user_index}: user(login: "{user}") {{
+        query += f"""user{user_index}: user(login: "{user}") {{
             login createdAt name email bio location company
             socialAccounts(first: 10) {{
                 nodes {{ url }}
                 }}
             }}"""
-    
-        query = query.replace('{{', '{').replace('}}', '}') # Escape braces for f-string
-        query += "}"
+    query += "}" # Closes the GraphQL query string
     
     return query
 
@@ -105,9 +123,7 @@ def graphQL_build_stargazing_query(user_logins): # Builds and returns a query th
                 pageInfo {{ endCursor hasNextPage }}
                 }}
             }}"""
-        
-        query = query.replace('{{', '{').replace('}}', '}') # Escape braces for f-string
-        query += "}"
+        query += "}" # Closes the GraphQL query string
     
     return query
 
@@ -132,7 +148,7 @@ def graphQL_repo_insights_query(login): # Returns a query for repositories owned
     }}
     """
 
-def graphQL_organization_query(batch): # Returns a query for organizations, including members and repositories
+def graphQL_organization_info_query(batch): # Returns a query for organizations, including members and repositories
     var_decl = ", ".join([f"$repoCursor{idx}: String, $memberCursor{idx}: String" for idx in range(len(batch))])
     query = f"""query({var_decl}) {{
         """
@@ -145,11 +161,33 @@ def graphQL_organization_query(batch): # Returns a query for organizations, incl
                 pageInfo {{ hasNextPage endCursor }}
             }}
             membersWithRole(first: 100, after: $memberCursor{i}) {{
-                nodes {{ login name email }}
+                nodes {{
+                    login name email location
+                    socialAccounts(first: 10) {{
+                        nodes {{ url }}
+                    }}
+                    createdAt company bio
+                }}
                 pageInfo {{ hasNextPage endCursor }}
             }}
         }}"""
-        
+    query += "}" # Closes the GraphQL query string
+    
+    return query
+
+def graphQL_organization_membership_query(batch): # Returns a query for organizations, including members and repositories
+    var_decl = ", ".join([f"$memberCursor{idx}: String" for idx in range(len(batch))])
+    query = f"""query({var_decl}) {{
+        """
+    
+    for i, org in enumerate(batch):
+        query += f"""org{i}: organization(login: "{org}") {{
+            login
+            membersWithRole(first: 100, after: $memberCursor{i}) {{
+                nodes {{ login }}
+                pageInfo {{ hasNextPage endCursor }}
+            }}
+        }}"""
     query += "}" # Closes the GraphQL query string
     
     return query
